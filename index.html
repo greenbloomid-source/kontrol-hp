@@ -158,7 +158,7 @@
 <script>
 // ====== KONFIGURASI ======
 // 1. Deploy Code.gs sebagai Web App, salin URL /exec ke sini:
-const API_URL = "https://script.google.com/macros/s/AKfycbzB717ajdOgT94rnxm0zQW3cQ9-1nbTN2QacOpibrUfl8HVE3hmBG3BhzMTq0ilKV_E/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbyjrz1ATo8D80EM1wY7aiJHn5x-iFMnWuUp_3r-mC0C-iLvpsHzqQ_1BO4eijO3WU80/exec";
 // 2. Password harus SAMA dengan APP_PASSWORD di Code.gs
 // (password tidak ditulis di sini — user input saat login)
 // ==========================
@@ -187,25 +187,37 @@ function setSync(state, txt) {
   document.getElementById("sync-txt").textContent = txt;
 }
 
-async function apiGet() {
-  const r = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action: "get", pw: PW })
+// ====== JSONP (anti-CORS) ======
+let jsonpSeq = 0;
+function jsonp(params) {
+  return new Promise((resolve, reject) => {
+    const cb = "__jsonp_" + (++jsonpSeq) + "_" + Date.now();
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("timeout — cek koneksi / URL Apps Script"));
+    }, 20000);
+    function cleanup() {
+      clearTimeout(timeout);
+      delete window[cb];
+      if (s.parentNode) s.parentNode.removeChild(s);
+    }
+    window[cb] = (resp) => { cleanup(); resolve(resp); };
+    const qs = Object.keys(params).map(k => encodeURIComponent(k) + "=" + encodeURIComponent(params[k])).join("&");
+    const s = document.createElement("script");
+    s.src = API_URL + "?callback=" + cb + "&" + qs;
+    s.onerror = () => { cleanup(); reject(new Error("gagal load — URL Apps Script salah / belum deploy Anyone")); };
+    document.body.appendChild(s);
   });
-  const j = await r.json();
+}
+
+async function apiGet() {
+  const j = await jsonp({ action: "get", pw: PW });
   if (!j.ok) throw new Error(j.error || "gagal");
   return j.data;
 }
 
 async function apiSave(records) {
-  // text/plain hindari CORS preflight ke Apps Script
-  const r = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ pw: PW, data: records })
-  });
-  const j = await r.json();
+  const j = await jsonp({ action: "save", pw: PW, data: JSON.stringify(records) });
   if (!j.ok) throw new Error(j.error || "gagal");
   return j.data;
 }
